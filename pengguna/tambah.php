@@ -1,0 +1,51 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/_helper.php';
+pengguna_require_admin();
+$roles=pengguna_roles();$old=pengguna_take_old();$error='';
+$prefillSiswaId=max(0,(int)($_GET['siswa_id']??0));
+if(!$old && $prefillSiswaId<=0 && ($_GET['role']??'')==='siswa'){ $old=['username'=>'','nama'=>'','role'=>'siswa','guru_id'=>0,'siswa_id'=>0,'hubungan'=>'wali']; }
+if(!$old && $prefillSiswaId>0){$st0=$pdo->prepare("SELECT id,nama,nis FROM siswa WHERE id=? AND status='aktif' LIMIT 1");$st0->execute([$prefillSiswaId]);if($sx=$st0->fetch()){ $old=['username'=>(string)$sx['nis'],'nama'=>(string)$sx['nama'],'role'=>'siswa','guru_id'=>0,'siswa_id'=>(int)$sx['id'],'hubungan'=>'wali']; }}
+$guruRows=$pdo->query("SELECT g.id,g.nama,g.nip FROM guru g WHERE g.status='aktif' AND NOT EXISTS(SELECT 1 FROM users u WHERE u.guru_id=g.id) ORDER BY g.nama")->fetchAll();
+$siswaRows=$pdo->query("SELECT s.id,s.nama,s.nis,s.nisn,mk.nama AS kelas FROM siswa s LEFT JOIN siswa_kelas sk ON sk.id=(SELECT sk2.id FROM siswa_kelas sk2 WHERE sk2.siswa_id=s.id AND sk2.tahun_pelajaran_id=(SELECT id FROM tahun_pelajaran WHERE aktif=1 ORDER BY id DESC LIMIT 1) AND sk2.status='aktif' ORDER BY sk2.id DESC LIMIT 1) LEFT JOIN master_kelas mk ON mk.id=sk.kelas_id WHERE s.status='aktif' AND NOT EXISTS(SELECT 1 FROM users u WHERE u.siswa_id=s.id) ORDER BY s.nama")->fetchAll();
+$anakRows=$pdo->query("SELECT s.id,s.nama,s.nis,s.nisn,mk.nama AS kelas FROM siswa s LEFT JOIN siswa_kelas sk ON sk.id=(SELECT sk2.id FROM siswa_kelas sk2 WHERE sk2.siswa_id=s.id AND sk2.tahun_pelajaran_id=(SELECT id FROM tahun_pelajaran WHERE aktif=1 ORDER BY id DESC LIMIT 1) AND sk2.status='aktif' ORDER BY sk2.id DESC LIMIT 1) LEFT JOIN master_kelas mk ON mk.id=sk.kelas_id WHERE s.status='aktif' ORDER BY mk.urutan,mk.nama,s.nama")->fetchAll();
+if($_SERVER['REQUEST_METHOD']==='POST'){
+ require_valid_csrf();$username=trim((string)($_POST['username']??''));$nama=trim((string)($_POST['nama']??''));$password=(string)($_POST['password']??'');$password2=(string)($_POST['password2']??'');$role=(string)($_POST['role']??'');$guruId=max(0,(int)($_POST['guru_id']??0));$siswaId=max(0,(int)($_POST['siswa_id']??0));$anakIds=[];$hubungan=(string)($_POST['hubungan']??'wali');
+ if($role==='siswa' && $siswaId>0){
+  $sx=$pdo->prepare("SELECT nama,nis FROM siswa WHERE id=? AND status='aktif' LIMIT 1");$sx->execute([$siswaId]);
+  if($sr=$sx->fetch()){ $nama=(string)$sr['nama'];$username=(string)$sr['nis'];$password=(string)$sr['nis'].'*';$password2=$password; }
+ }
+ $old=['username'=>$username,'nama'=>$nama,'role'=>$role,'guru_id'=>$guruId,'siswa_id'=>$siswaId,'anak_ids'=>$anakIds,'hubungan'=>$hubungan];
+ if($username===''||$nama===''||$role==='')$error='Username, nama, role, dan data wajib diisi.';elseif($role!=='siswa'&&($password===''||$password2===''))$error='Username, nama, role, dan password wajib diisi.';elseif($role!=='siswa'&&strlen($password)<8)$error='Password minimal 8 karakter.';elseif($role!=='siswa'&&$password!==$password2)$error='Konfirmasi password tidak sama.';elseif(!isset($roles[$role]))$error='Role tidak valid.';elseif(in_array($role,['guru','guru_bk'],true) && $guruId<=0)$error='Akun Guru/Guru BK wajib terhubung ke data Guru.';elseif($role==='siswa' && $siswaId<=0)$error='Akun Siswa wajib terhubung ke data Siswa.';elseif($role==='ortu' && $siswaId<=0)$error='Akun Orang Tua/Wali wajib terhubung minimal ke satu siswa.';elseif($role==='ortu' && !in_array($hubungan,['ayah','ibu','wali','lainnya'],true))$error='Hubungan orang tua/wali tidak valid.';elseif(!in_array($role,['guru','guru_bk'],true)&&$guruId>0)$error='Relasi Guru hanya boleh untuk role Guru atau Guru BK.';elseif($role!=='siswa'&&$role!=='ortu'&&$siswaId>0)$error='Relasi Siswa hanya boleh untuk role Siswa.';
+ if($error==='')try{
+  $st=$pdo->prepare('SELECT id FROM users WHERE username=? LIMIT 1');$st->execute([$username]);if($st->fetch())$error='Username sudah digunakan.';
+  if($error===''){
+   if($guruId>0){$st=$pdo->prepare('SELECT 1 FROM users WHERE guru_id=? LIMIT 1');$st->execute([$guruId]);if($st->fetch())$error='Guru tersebut sudah memiliki akun.';}
+   if($siswaId>0){$st=$pdo->prepare('SELECT 1 FROM users WHERE siswa_id=? LIMIT 1');$st->execute([$siswaId]);if($st->fetch())$error='Siswa tersebut sudah memiliki akun.';}
+  }
+  if($error===''){$st=$pdo->prepare('INSERT INTO users(username,password,nama,role,guru_id,siswa_id,status) VALUES(?,?,?,?,?,?,\'aktif\')');$st->execute([$username,password_hash($password,PASSWORD_DEFAULT),$nama,$role,$guruId?:null,$siswaId?:null]);$id=(int)$pdo->lastInsertId(); if($role==='ortu'){ $ot=$pdo->prepare('INSERT INTO orang_tua(user_id,nama) VALUES(?,?)'); $ot->execute([$id,$nama]); $oid=(int)$pdo->lastInsertId(); $os=$pdo->prepare('INSERT INTO orang_tua_siswa(orang_tua_id,siswa_id,hubungan) VALUES(?,?,?)'); $os->execute([$oid,$siswaId,$hubungan]); } pengguna_audit('CREATE_USER',$id,'Membuat akun '.$username.' dengan role '.$role);pengguna_flash('Pengguna berhasil dibuat.');redirect('pengguna/index.php');}
+ }catch(PDOException $e){$error='Gagal menyimpan pengguna. Pastikan data relasi dan username belum digunakan.';}
+}
+$page_title='Tambah Pengguna';require_once __DIR__.'/../layouts/header.php';require_once __DIR__.'/../layouts/sidebar.php';
+?>
+<main class="main"><header class="topbar"><div class="topbar-title">Tambah Pengguna</div><div class="topbar-user"><?=e(user_name())?></div></header><section class="content">
+<div class="page-header"><div><h1>Tambah Pengguna</h1><p>Buat akun login baru dan tentukan role.</p></div><div class="page-header-actions"><a class="btn btn-secondary" href="<?=BASE_URL?>pengguna/index.php"><i class="bi bi-arrow-left"></i> Kembali</a></div></div>
+<?php if($error):?><div class="alert alert-danger"><?=e($error)?></div><?php endif;?>
+<div class="form-card"><form method="post"><?=csrf_field()?><div class="form-grid">
+<label>Username<input class="form-control" name="username" value="<?=e($old['username']??'')?>" required autocomplete="username"></label>
+<label>Nama Pengguna<input class="form-control" name="nama" value="<?=e($old['nama']??'')?>" required></label>
+<label>Role<select class="form-control" name="role" id="role" required><option value="">Pilih role</option><?php foreach($roles as $k=>$v):?><option value="<?=$k?>" <?=($old['role']??'')===$k?'selected':''?>><?=e($v)?></option><?php endforeach;?></select></label>
+<label>Password<div id="passwordManual"><input class="form-control" type="password" name="password" minlength="8" autocomplete="new-password"><small>Minimal 8 karakter.</small></div><div id="passwordSiswa" style="display:none"><div class="form-control" style="background:#f1f5f9">Otomatis: <strong>NIS + *</strong></div><small>Password awal siswa otomatis menggunakan NIS + <code>*</code>.</small></div></label>
+<label id="password2Wrap">Konfirmasi Password<input class="form-control" type="password" name="password2" minlength="8" autocomplete="new-password"></label>
+<label id="guruWrap">Hubungkan Guru<select class="form-control" name="guru_id"><option value="0">Tidak terhubung</option><?php foreach($guruRows as $r):?><option value="<?=$r['id']?>" <?=((int)($old['guru_id']??0)===(int)$r['id'])?'selected':''?>><?=e($r['nama'])?><?= $r['nip']?' · '.e($r['nip']):''?></option><?php endforeach;?></select></label>
+<div id="siswaWrap" class="form-group-full">
+<label>Hubungkan Siswa</label>
+<div class="student-picker" data-student-picker data-items="<?=e(json_encode($siswaRows,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES))?>">
+<input type="hidden" name="siswa_id" data-student-value value="<?=e((string)((int)($old['siswa_id']??0)))?>">
+<div class="student-picker-toolbar"><select class="form-control" data-student-class><option value="">Pilih Kelas Terlebih Dahulu</option></select><input class="form-control" type="search" data-student-search placeholder="Pilih kelas terlebih dahulu, lalu cari nama/NIS/NISN..." autocomplete="off"></div>
+<div data-student-selected></div><div class="student-picker-results" data-student-results></div><div class="student-picker-empty" data-student-empty hidden>Tidak ada siswa yang sesuai.</div>
+<small class="student-picker-help"><i class="bi bi-funnel"></i> Pilih kelas terlebih dahulu, kemudian pilih siswa.</small>
+</div></div>
+<label id="hubunganWrap" style="display:none">Hubungan Orang Tua/Wali<select class="form-control" name="hubungan"><option value="ayah">Ayah</option><option value="ibu">Ibu</option><option value="wali">Wali</option><option value="lainnya">Lainnya</option></select></label>
+</div><div class="form-actions"><button class="btn btn-primary" type="submit"><i class="bi bi-person-plus"></i> Simpan Pengguna</button><a class="btn btn-secondary" href="<?=BASE_URL?>pengguna/index.php">Batal</a></div></form></div>
+</section></main><script>const r=document.getElementById('role'),g=document.getElementById('guruWrap'),s=document.getElementById('siswaWrap'),pm=document.getElementById('passwordManual'),ps=document.getElementById('passwordSiswa'),p2=document.getElementById('password2Wrap');function sync(){const siswa=r.value==='siswa';g.style.display=(r.value==='guru'||r.value==='guru_bk')?'flex':'none';s.style.display=(siswa||r.value==='ortu')?'flex':'none';document.getElementById('hubunganWrap').style.display=r.value==='ortu'?'flex':'none';pm.style.display=siswa?'none':'block';ps.style.display=siswa?'block':'none';p2.style.display=siswa?'none':'block';}r.addEventListener('change',sync);sync();</script><?php require_once __DIR__.'/../layouts/footer.php'; ?>

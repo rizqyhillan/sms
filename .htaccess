@@ -1,0 +1,37 @@
+DirectoryIndex index.php
+Options -Indexes
+
+# -----------------------------------------------------
+# Security headers for the local school application
+# -----------------------------------------------------
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(self), microphone=()"
+    Header always set Content-Security-Policy-Report-Only "default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https:;"
+    # HSTS is intentionally enabled only when the current request is HTTPS.
+    # This keeps offline/local HTTP deployments working normally.
+    <If "%{HTTPS} == 'on'">
+        Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    </If>
+</IfModule>
+
+# -----------------------------------------------------
+# Never expose development/backup/source documents
+# -----------------------------------------------------
+<FilesMatch "\.(bak|sql|md|log)$">
+    Require all denied
+</FilesMatch>
+
+# Test/setup helpers are not application endpoints.
+# They remain in the package for reference but cannot be opened
+# directly from a browser in the deployed application.
+<FilesMatch "^(admin_test|akses_siswa_test|buat_admin|setup_admin_access)\.php$">
+    Require all denied
+</FilesMatch>
+
+# Internal audit artifacts are not public application resources.
+<FilesMatch "^(MED01_UPLOAD_AUDIT|MED02_AUDIT)\.json$">
+    Require all denied
+</FilesMatch>

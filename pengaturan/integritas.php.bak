@@ -1,0 +1,83 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/../includes/maintenance.php';
+maintenance_require_admin();
+$page_title = 'Integritas Sistem';
+
+$schema = (string)$db;
+$checks = [];
+
+function integrity_table_exists(PDO $pdo, string $table): bool {
+    $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
+    $st->execute([$table]);
+    return (int)$st->fetchColumn() > 0;
+}
+
+try {
+    $tableCount = (int)$pdo->query("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'")->fetchColumn();
+    $checks[] = ['ok' => $tableCount > 0, 'label' => 'Struktur database', 'detail' => number_format($tableCount) . ' tabel aktif pada database ' . $schema];
+
+    $fkCount = (int)$pdo->query("SELECT COUNT(*) FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE()")->fetchColumn();
+    $checks[] = ['ok' => true, 'label' => 'Relasi foreign key', 'detail' => number_format($fkCount) . ' constraint relasional terdaftar'];
+
+    $required = ['siswa','users','absensi','sesi_absensi','absensi_sholat','sesi_sholat'];
+    $missing = [];
+    foreach ($required as $t) if (!integrity_table_exists($pdo, $t)) $missing[] = $t;
+    $checks[] = ['ok' => !$missing, 'label' => 'Tabel inti aplikasi', 'detail' => $missing ? 'Tidak ditemukan: ' . implode(', ', $missing) : 'Seluruh tabel inti yang diperiksa tersedia'];
+
+    $orphan = 0; $scanned = 0;
+    $sql = "SELECT TABLE_NAME, CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+            FROM information_schema.KEY_COLUMN_USAGE
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND REFERENCED_TABLE_NAME IS NOT NULL
+              AND REFERENCED_COLUMN_NAME IS NOT NULL
+              AND ORDINAL_POSITION = 1
+            ORDER BY TABLE_NAME, CONSTRAINT_NAME";
+    foreach ($pdo->query($sql) as $fk) {
+        // Only single-column FK constraints are scanned here; composite constraints are reported as metadata.
+        $constraintCols = $pdo->prepare("SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ?");
+        $constraintCols->execute([$fk['TABLE_NAME'], $fk['CONSTRAINT_NAME'] ?? '']);
+        if ((int)$constraintCols->fetchColumn() !== 1) continue;
+        $child = str_replace('`','``',$fk['TABLE_NAME']);
+        $col = str_replace('`','``',$fk['COLUMN_NAME']);
+        $parent = str_replace('`','``',$fk['REFERENCED_TABLE_NAME']);
+        $pcol = str_replace('`','``',$fk['REFERENCED_COLUMN_NAME']);
+        $q = "SELECT COUNT(*) FROM `{$child}` c LEFT JOIN `{$parent}` p ON p.`{$pcol}` = c.`{$col}` WHERE c.`{$col}` IS NOT NULL AND p.`{$pcol}` IS NULL";
+        try { $n = (int)$pdo->query($q)->fetchColumn(); $orphan += $n; $scanned++; } catch (Throwable) { /* keep read-only check resilient */ }
+    }
+    $checks[] = ['ok' => $orphan === 0, 'label' => 'Data orphan relasional', 'detail' => $scanned ? number_format($orphan) . ' baris orphan pada relasi FK tunggal yang dipindai' : 'Tidak ada relasi FK tunggal yang dapat dipindai'];
+
+    $duplicateIndexes = 0;
+    $idxSql = "SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND NON_UNIQUE = 0 AND INDEX_NAME <> 'PRIMARY' ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX";
+    $groups = [];
+    foreach ($pdo->query($idxSql) as $r) $groups[$r['TABLE_NAME'].'|'.$r['INDEX_NAME']][] = $r['COLUMN_NAME'];
+    foreach ($groups as $key => $cols) {
+        if (!$cols) continue;
+        [$table,$index] = explode('|',$key,2);
+        $safeCols = array_map(fn($c) => '`'.str_replace('`','``',$c).'`', $cols);
+        $qt = '`'.str_replace('`','``',$table).'`';
+        try {
+            $n = (int)$pdo->query("SELECT COUNT(*) - COUNT(DISTINCT ".implode(',', $safeCols).") FROM {$qt}")->fetchColumn();
+            if ($n > 0) $duplicateIndexes += $n;
+        } catch (Throwable) {}
+    }
+    $checks[] = ['ok' => $duplicateIndexes === 0, 'label' => 'Konsistensi unique index', 'detail' => $duplicateIndexes === 0 ? 'Tidak ditemukan indikasi duplikasi pada unique index yang diperiksa' : number_format($duplicateIndexes) . ' indikasi duplikasi'];
+
+    $checks[] = ['ok' => true, 'label' => 'Mode pemeriksaan', 'detail' => 'Read-only: halaman ini tidak INSERT, UPDATE, DELETE, ALTER, atau memperbaiki data otomatis'];
+} catch (Throwable $e) {
+    $checks[] = ['ok' => false, 'label' => 'Pemeriksaan database', 'detail' => 'Pemeriksaan tidak selesai: koneksi atau struktur database perlu diperiksa'];
+}
+
+$okCount = count(array_filter($checks, fn($c) => $c['ok']));
+$total = count($checks);
+require_once __DIR__ . '/../layouts/header.php';
+require_once __DIR__ . '/../layouts/sidebar.php';
+?>
+<main class="main"><header class="topbar"><div class="topbar-title">Integritas Sistem</div><div class="topbar-user"><?=e(user_name())?></div></header><section class="content">
+<div class="page-header"><div><h1><i class="bi bi-shield-check"></i> Integritas Sistem</h1><p>Pemeriksaan read-only terhadap struktur, relasi, dan konsistensi database.</p></div><a class="btn btn-secondary" href="<?=BASE_URL?>pengaturan/pemeliharaan/index.php"><i class="bi bi-arrow-left"></i> Pemeliharaan</a></div>
+<div class="integrity-summary <?= $okCount === $total ? 'is-ok' : 'is-warning' ?>"><div class="integrity-summary-icon"><i class="bi <?= $okCount === $total ? 'bi-shield-check' : 'bi-shield-exclamation' ?>"></i></div><div><strong><?= $okCount === $total ? 'Pemeriksaan selesai' : 'Perlu perhatian' ?></strong><div><?=number_format($okCount)?> dari <?=number_format($total)?> pemeriksaan berstatus OK.</div><small><?=e(date('d-m-Y H:i:s'))?> WIB · Database <?=e($schema)?></small></div></div>
+<div class="integrity-grid">
+<?php foreach ($checks as $c): ?><div class="integrity-card <?= $c['ok'] ? 'ok' : 'warn' ?>"><div class="integrity-icon"><i class="bi <?= $c['ok'] ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill' ?>"></i></div><div><h3><?=e($c['label'])?></h3><p><?=e($c['detail'])?></p></div></div><?php endforeach; ?>
+</div>
+<div class="maintenance-warning"><div class="maintenance-warning-icon"><i class="bi bi-eye"></i></div><div><strong>Pemeriksaan bersifat read-only</strong><p>Integritas Sistem hanya membaca metadata dan data untuk kontrol. Tidak ada perubahan data, penghapusan, migrasi, atau perbaikan otomatis yang dijalankan dari halaman ini.</p></div></div>
+</section></main><?php require_once __DIR__ . '/../layouts/footer.php'; ?>

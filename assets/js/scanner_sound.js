@@ -1,0 +1,8 @@
+(function(){
+  const KEY='absensi_scanner_sound'; let enabled=localStorage.getItem(KEY)!=='off'; let ctx=null;
+  async function unlock(){if(!enabled)return false;try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return false;if(!ctx)ctx=new C();if(ctx.state==='suspended')await ctx.resume();return ctx.state==='running'}catch(e){return false}}
+  function update(btn){if(!btn)return;btn.classList.toggle('off',!enabled);btn.setAttribute('aria-pressed',enabled?'true':'false');btn.innerHTML=enabled?'<i class="bi bi-volume-up-fill"></i><span>Suara ON</span>':'<i class="bi bi-volume-mute-fill"></i><span>Suara OFF</span>'}
+  async function beep(ok=true){if(!enabled||!(await unlock()))return;try{const now=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.setValueAtTime(ok?880:240,now);o.frequency.setValueAtTime(ok?1320:180,now+.08);g.gain.setValueAtTime(.0001,now);g.gain.exponentialRampToValueAtTime(.14,now+.015);g.gain.exponentialRampToValueAtTime(.0001,now+.18);o.connect(g);g.connect(ctx.destination);o.start(now);o.stop(now+.2)}catch(e){}}
+  function bind(id){const btn=document.getElementById(id);if(!btn)return;update(btn);btn.addEventListener('click',async()=>{enabled=!enabled;localStorage.setItem(KEY,enabled?'on':'off');update(btn);if(enabled)await beep(true)});document.addEventListener('pointerdown',()=>unlock(),{passive:true,once:false});document.addEventListener('keydown',()=>unlock(),{passive:true,once:false});return {beep,enabled:()=>enabled}}
+  window.SPLASMA_SCANNER_SOUND={bind,beep,enabled:()=>enabled,unlock};
+})();

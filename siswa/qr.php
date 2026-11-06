@@ -1,0 +1,6 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/_helper.php';
+$id=max(0,(int)($_GET['id']??0));$siswa=siswa_find($pdo,$id);if(!$siswa){http_response_code(404);exit('Siswa tidak ditemukan.');}
+$page_title='QR Siswa';require_once __DIR__.'/../layouts/header.php';require_once __DIR__.'/../layouts/sidebar.php';
+?><main class="main"><header class="topbar"><div class="topbar-title">QR Siswa</div><div class="topbar-user"><?=e(user_name())?></div></header><section class="content siswa-qr-page"><div class="page-header"><div><h1>QR Siswa</h1><p>QR ini adalah identitas permanen dan dipakai lintas modul.</p></div><div class="page-header-actions"><button class="btn btn-primary btn-print-card" onclick="window.print()">Cetak</button><a class="btn btn-secondary" href="<?=BASE_URL?>siswa/detail.php?id=<?=$id?>">Kembali</a></div></div><div class="qr-print-card"><div id="qrcode"></div><h2><?=e($siswa['nama'])?></h2><p>NIS: <?=e($siswa['nis'])?></p><p><code><?=e($siswa['kode_qr'])?></code></p></div></section></main><script src="<?= BASE_URL ?>assets/js/vendor/qrcode.min.js?v=91"></script><script>new QRCode(document.getElementById('qrcode'),{text:<?=json_encode($siswa['kode_qr'])?>,width:260,height:260});</script><?php require_once __DIR__.'/../layouts/footer.php'; ?>

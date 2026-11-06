@@ -1,0 +1,31 @@
+-- PART52 - Portal Orang Tua
+-- Jalankan SATU KALI setelah PART51.
+
+ALTER TABLE users
+  MODIFY role ENUM('admin','kepala_sekolah','guru','guru_bk','siswa','ortu') NOT NULL;
+
+CREATE TABLE IF NOT EXISTS orang_tua (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  nama VARCHAR(150) NOT NULL,
+  no_hp VARCHAR(30) DEFAULT NULL,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY(id),
+  UNIQUE KEY uk_ortu52_user(user_id),
+  CONSTRAINT fk_ortu52_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS orang_tua_siswa (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  orang_tua_id BIGINT UNSIGNED NOT NULL,
+  siswa_id BIGINT UNSIGNED NOT NULL,
+  hubungan ENUM('ayah','ibu','wali','lainnya') NOT NULL DEFAULT 'wali',
+  utama TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(id),
+  UNIQUE KEY uk_ortu52_anak(orang_tua_id,siswa_id),
+  KEY idx_ortu52_siswa(siswa_id),
+  CONSTRAINT fk_ortu52_ot FOREIGN KEY(orang_tua_id) REFERENCES orang_tua(id) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_ortu52_siswa FOREIGN KEY(siswa_id) REFERENCES siswa(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

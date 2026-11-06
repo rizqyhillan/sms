@@ -1,0 +1,37 @@
+{
+  "stage": "MED-02 Backup/Restore Audit",
+  "baseline": "absensi_20260926_FULL_BATCH_AUDIT_FIX2_MED01.zip",
+  "files_reviewed": [
+    "PART59_PEMELIHARAAN_SISTEM.md",
+    "CHECKUP20_DATABASE_INTEGRITY_AUDIT.txt",
+    "dashboard.php",
+    "FULL_BATCH_AUDIT_FIX1_CHANGELOG.md",
+    "CHECKUP19_ASSET_CLASSIFICATION.txt",
+    "CLEANUP_V1_CHANGELOG.md",
+    "PART25_MODUL_IZIN_CHANGELOG.md",
+    "MIGRATION_FINAL_V15_README.md",
+    "MIGRATION_FINAL_V15_SISWA_ABSENSI_SHOLAT.sql",
+    "includes/maintenance.php",
+    "perpustakaan/peminjaman.php",
+    "pengaturan/index.php",
+    "pengaturan/tahun_pelajaran/index.php",
+    "pengaturan/pemeliharaan/download.php",
+    "pengaturan/pemeliharaan/reset.php",
+    "pengaturan/pemeliharaan/hapus_siswa.php",
+    "pengaturan/pemeliharaan/index.php",
+    "pengaturan/pemeliharaan/backup.php",
+    "config/database.php"
+  ],
+  "maintenance_found": "includes/maintenance.php",
+  "finding": "Backup/restore command construction requires hardening if database password is passed on command line. Do not expose DB credentials in UI or process arguments.",
+  "safe_direction": [
+    "keep backup/restore admin-only and CSRF-protected",
+    "avoid embedding DB password in command-line arguments",
+    "prefer MYSQL_PWD only for tightly controlled child process, or a temporary client config with restrictive permissions, then delete it",
+    "validate backup filename/path and never allow arbitrary command arguments",
+    "keep shell argument escaping",
+    "verify restore source is inside approved backup directory",
+    "do not expose command stderr containing credentials",
+    "audit backup directory permissions"
+  ]
+}

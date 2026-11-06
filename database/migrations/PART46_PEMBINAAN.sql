@@ -1,0 +1,37 @@
+-- PART46 - Modul Pembinaan Siswa
+-- Jalankan SATU KALI setelah PART45.
+
+CREATE TABLE IF NOT EXISTS pembinaan_siswa (
+  id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+  siswa_id BIGINT(20) UNSIGNED NOT NULL,
+  tahun_pelajaran_id BIGINT(20) UNSIGNED NOT NULL,
+  pelanggaran_id BIGINT(20) UNSIGNED DEFAULT NULL,
+  tanggal DATE NOT NULL,
+  waktu TIME DEFAULT NULL,
+  jenis ENUM('teguran','konsultasi','pembinaan_individu','pembinaan_ortu','perjanjian_perilaku','lainnya') NOT NULL DEFAULT 'pembinaan_individu',
+  masalah TEXT NOT NULL,
+  tindakan TEXT DEFAULT NULL,
+  hasil TEXT DEFAULT NULL,
+  tindak_lanjut TEXT DEFAULT NULL,
+  status ENUM('direncanakan','proses','selesai','dibatalkan') NOT NULL DEFAULT 'proses',
+  melibatkan_ortu TINYINT(1) NOT NULL DEFAULT 0,
+  rekomendasi_pengurangan_poin INT NOT NULL DEFAULT 0,
+  rujukan_bk_id BIGINT(20) UNSIGNED DEFAULT NULL,
+  petugas_id BIGINT(20) UNSIGNED DEFAULT NULL,
+  created_by BIGINT(20) UNSIGNED DEFAULT NULL,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_pembinaan46_siswa (siswa_id),
+  KEY idx_pembinaan46_tapel (tahun_pelajaran_id),
+  KEY idx_pembinaan46_pelanggaran (pelanggaran_id),
+  KEY idx_pembinaan46_tanggal (tanggal),
+  KEY idx_pembinaan46_status (status),
+  KEY idx_pembinaan46_petugas (petugas_id),
+  CONSTRAINT fk_pembinaan46_siswa FOREIGN KEY (siswa_id) REFERENCES siswa(id) ON UPDATE CASCADE,
+  CONSTRAINT fk_pembinaan46_tapel FOREIGN KEY (tahun_pelajaran_id) REFERENCES tahun_pelajaran(id) ON UPDATE CASCADE,
+  CONSTRAINT fk_pembinaan46_pelanggaran FOREIGN KEY (pelanggaran_id) REFERENCES pelanggaran_siswa(id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_pembinaan46_bk FOREIGN KEY (rujukan_bk_id) REFERENCES catatan_bk(id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_pembinaan46_petugas FOREIGN KEY (petugas_id) REFERENCES guru(id) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT fk_pembinaan46_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

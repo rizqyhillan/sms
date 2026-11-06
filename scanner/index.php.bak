@@ -1,0 +1,181 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/../absensi/_helper.php';
+require_once __DIR__ . '/../includes/auto_sessions.php';
+
+$allSessions = auto_sessions_today($pdo);
+$nowTime = (new DateTimeImmutable('now'))->format('H:i:s');
+$today = (new DateTimeImmutable('now'))->format('Y-m-d');
+
+$todaySessions = array_values(array_filter(
+    $allSessions,
+    static fn(array $row): bool =>
+        (string)$row['tanggal'] === $today && (string)$row['status'] === 'aktif'
+));
+
+$inWindow = array_values(array_filter(
+    $todaySessions,
+    static fn(array $row): bool =>
+        (string)$row['jam_mulai'] <= $nowTime &&
+        ((string)($row['jam_selesai'] ?? '') === '' || (string)$row['jam_selesai'] > $nowTime)
+));
+
+if ($inWindow) {
+    usort($inWindow, static fn(array $a,array $b): int =>
+        strcmp((string)$b['jam_mulai'], (string)$a['jam_mulai'])
+    );
+    $sesi = $inWindow[0];
+} else {
+    // Setelah jam selesai, scanner tetap dapat memakai sesi terakhir
+    // sampai kegiatan berikutnya dimulai.
+    $past = array_values(array_filter(
+        $todaySessions,
+        static fn(array $row): bool => (string)$row['jam_mulai'] <= $nowTime
+    ));
+    usort($past, static fn(array $a,array $b): int =>
+        strcmp((string)$b['jam_mulai'], (string)$a['jam_mulai'])
+    );
+    $sesi = $past[0] ?? null;
+}
+
+$sesiId = $sesi ? (int)$sesi['id'] : 0;
+$page_title='Scanner QR'; require_once __DIR__.'/../layouts/header.php'; require_once __DIR__.'/../layouts/sidebar.php';
+?>
+<main class="main"><header class="topbar"><div class="topbar-title">Scanner QR</div><div class="topbar-user"><?=e(user_name())?></div></header><section class="content">
+<div class="page-header"><div><h1>Scanner QR Terpadu</h1><p>Kamera laptop/HP dan scanner USB. Kegiatan absensi dipilih otomatis berdasarkan waktu dan jadwal sekolah.</p></div></div>
+<div id="connection" class="scanner-connection online"><span class="dot"></span><strong>ONLINE</strong><span id="connectionText">Terhubung ke server sekolah</span><span id="queueBadge" class="queue-badge">Sinkronisasi otomatis: 0</span></div>
+<div class="auto-session" id="autoSession"><div class="auto-session-icon">✓</div><div><div class="auto-session-label">KEGIATAN OTOMATIS</div><strong id="autoSessionName"><?= $sesi ? e(($sesi['kategori']==='sholat' ? 'Absensi Sholat '.($sesi['sholat_nama']??'') : 'Absensi Kehadiran')) : 'Tidak ada kegiatan aktif' ?></strong><span id="autoSessionMeta"><?= $sesi ? e($sesi['nama_sesi'].' · '.substr($sesi['jam_mulai'],0,5).'–'.substr($sesi['jam_selesai'],0,5)) : 'Scanner akan mengikuti jadwal secara otomatis.' ?></span></div></div>
+<div class="form-card">
+<div class="scanner-source-card"><div class="source-title"><div><strong>Pilih sumber scan</strong><div class="source-subtitle">Kamera dan scanner USB bekerja dengan cara yang berbeda.</div></div><span id="cameraCount" class="camera-count">Belum dideteksi</span></div>
+<div class="camera-controls"><label class="camera-select-wrap"><span>Pilih Kamera</span><select class="form-control" id="cameraSelect" disabled><option value="">Tekan “Deteksi Kamera” terlebih dahulu</option></select></label><button class="btn btn-outline-primary" type="button" id="detectCameras"><i class="bi bi-camera-video"></i> Deteksi Kamera</button></div>
+<div class="source-hints"><div><strong>📷 Kamera komputer / HP</strong><span>Daftar kamera berasal dari perangkat yang sedang membuka halaman ini. Webcam USB akan muncul jika dikenali Windows/browser. Jika halaman dibuka di HP, kamera HP akan muncul di sini. Cabut/pasang webcam lalu tekan Deteksi Kamera untuk memperbarui daftar.</span></div><div><strong>⌨️ Scanner USB QR</strong><span>Scanner USB bukan kamera. Browser membacanya sebagai keyboard, jadi tidak muncul dalam daftar kamera. Cukup scan ke kolom input QR.</span></div></div></div>
+<div class="scanner-layout"><div><div id="reader" class="scanner-reader"><div class="scanner-placeholder"><div class="placeholder-icon">⌁</div><strong>Siap memindai QR</strong><span>Pilih kamera lalu tekan “Aktifkan Kamera”. Scanner tetap berjalan sampai ditutup manual.</span></div></div><div class="form-actions"><button class="btn btn-primary" type="button" id="startCamera"><i class="bi bi-camera-video"></i> Aktifkan Kamera</button><button class="btn btn-secondary" type="button" id="stopCamera"><i class="bi bi-camera-video-off"></i> Hentikan Kamera</button><button class="btn btn-danger" type="button" id="closeScanner"><i class="bi bi-stop-circle"></i> <i class="bi bi-stop-circle"></i> Tutup Scanner</button></div><small id="cameraHelp" class="text-muted">Kamera browser membutuhkan HTTPS atau localhost. Pada HP, buka aplikasi langsung dari HP agar kamera HP dapat digunakan.</small><div id="qrDecoderStatus" class="decoder-status">Pembaca QR: memeriksa dukungan browser…</div><div id="lanStatus" class="lan-status"></div><div class="decoder-help">Pembaca QR disiapkan otomatis. Pembacaan QR menggunakan kemampuan browser dan tetap dapat bekerja saat internet mati.</div></div><div><label>Input QR / Scanner USB<input class="form-control" id="qrInput" autocomplete="off" placeholder="Arahkan scanner USB ke sini…" autofocus></label><div id="usbStatus" class="usb-status">Scanner USB siap menerima input.</div><div id="result" class="scan-result neutral">Belum ada scan.</div><div id="queueInfo" class="scan-result neutral">Antrean offline: 0</div></div></div></div></section></main>
+<style>
+.scanner-connection{display:flex;align-items:center;gap:9px;padding:11px 14px;border-radius:10px;margin:0 0 16px;background:#f8fafc;color:#334155}.scanner-connection.online{background:#ecfdf5;color:#166534}.scanner-connection.offline{background:#fff7ed;color:#9a3412}.dot{width:10px;height:10px;border-radius:50%;background:currentColor}.queue-badge{margin-left:auto;font-weight:600}
+.auto-session{display:flex;align-items:center;gap:14px;margin:0 0 16px;padding:15px 18px;border:1px solid #bfdbfe;border-radius:14px;background:linear-gradient(135deg,#eff6ff,#f0fdf4);color:#0f172a}.auto-session-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:#dcfce7;color:#166534;font-weight:900;font-size:20px}.auto-session-label{font-size:.72rem;font-weight:800;letter-spacing:.08em;color:#2563eb}.auto-session strong,.auto-session span{display:block}.auto-session strong{font-size:1.05rem;margin-top:2px}.auto-session span{font-size:.84rem;color:#64748b;margin-top:2px}.scanner-source-card{margin-top:18px;padding:18px;border:1px solid #e2e8f0;border-radius:14px;background:#fff}.source-title{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.source-subtitle{margin-top:3px;color:#64748b;font-size:.9rem}.camera-count{font-size:.86rem;color:#64748b;white-space:nowrap}.camera-controls{display:flex;gap:12px;align-items:end;margin-top:15px}.camera-select-wrap{flex:1;margin:0}.camera-select-wrap>span{display:block;font-size:.85rem;font-weight:600;margin-bottom:6px}.source-hints{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.source-hints>div{padding:12px;border-radius:10px;background:#f8fafc;color:#475569}.source-hints strong,.source-hints span{display:block}.source-hints span{font-size:.82rem;line-height:1.45;margin-top:3px}.scanner-layout{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px}.scanner-reader{min-height:300px;border:2px dashed #cbd5e1;border-radius:14px;display:flex;align-items:center;justify-content:center;background:#f8fafc;overflow:hidden}.scanner-reader video{width:100%;height:auto;display:block}.scanner-placeholder{color:#64748b;text-align:center;padding:30px;display:flex;flex-direction:column;gap:7px}.placeholder-icon{font-size:38px}.scan-result{margin-top:18px;padding:18px;border-radius:12px;min-height:90px}.scan-result.neutral{background:#f8fafc;color:#475569}.scan-result.success{background:#dcfce7;color:#166534}.scan-result.error{background:#fee2e2;color:#991b1b}.usb-status{margin-top:10px;padding:10px 12px;border-radius:9px;background:#f8fafc;color:#475569;font-size:.85rem}.decoder-status{margin-top:8px;font-size:.82rem;color:#64748b}.decoder-help{margin-top:6px;padding:9px 11px;border-radius:9px;background:#f8fafc;color:#64748b;font-size:.8rem;line-height:1.45}.lan-status{margin-top:8px;padding:9px 11px;border-radius:9px;background:#f8fafc;color:#64748b;font-size:.8rem;line-height:1.45}
+@media(max-width:800px){.scanner-layout,.source-hints{grid-template-columns:1fr}.camera-controls{align-items:stretch;flex-direction:column}.camera-count{white-space:normal}.page-header-actions{flex-wrap:wrap}}
+</style>
+<script>
+const base=<?=json_encode(BASE_URL)?>, csrf=<?=json_encode(csrf_token())?>;
+const lanStatus=document.getElementById('lanStatus');
+if(lanStatus){const secure=window.isSecureContext;lanStatus.innerHTML=secure?'<strong>LAN/Kamera:</strong> HTTPS aktif — kamera browser dapat digunakan.':'<strong>LAN/Kamera:</strong> halaman HTTP. Scanner USB tetap dapat digunakan; kamera browser membutuhkan HTTPS atau localhost.';}
+const input=document.getElementById('qrInput'),result=document.getElementById('result'),reader=document.getElementById('reader'),conn=document.getElementById('connection'),connText=document.getElementById('connectionText'),cameraSelect=document.getElementById('cameraSelect'),cameraCount=document.getElementById('cameraCount'),cameraHelp=document.getElementById('cameraHelp'),autoSessionName=document.getElementById('autoSessionName'),autoSessionMeta=document.getElementById('autoSessionMeta');
+let stream=null,detector=null,loop=null,lastCode='',lastAt=0,scannerClosed=false;
+let currentSessionId=<?=json_encode($sesiId)?>, currentSession=<?=json_encode($sesi ?: null, JSON_UNESCAPED_UNICODE)?>;
+const DB='absensi_offline_v1';let db=null,offlineData={sessions:[],students:[]};
+function esc(s){return String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]))}
+function show(msg,type='error'){result.className='scan-result '+type;result.innerHTML=msg}
+function dbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>r.result.createObjectStore('data');r.onsuccess=()=>{db=r.result;res()};r.onerror=()=>rej(r.error)})}
+function dbGet(k){return new Promise((res,rej)=>{const t=db.transaction('data');const r=t.objectStore('data').get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+function dbPut(k,v){return new Promise((res,rej)=>{const t=db.transaction('data','readwrite');t.objectStore('data').put(v,k);t.oncomplete=res;t.onerror=()=>rej(t.error)})}
+async function queueGet(){return (await dbGet('queue'))||[]}async function queueSet(q){await dbPut('queue',q);renderQueue(q)}function renderQueue(q){q=q||[];document.getElementById('queueBadge').textContent='Sinkronisasi otomatis: '+q.length;document.getElementById('queueInfo').textContent='Antrean lokal: '+q.length+(q.length?' — akan disinkronkan otomatis saat server tersedia.':'')}
+function setConn(on,text){conn.className='scanner-connection '+(on?'online':'offline');connText.textContent=text}
+async function prefetch(){try{await dbOpen();const r=await fetch(base+'scanner/offline-data.php',{cache:'no-store'});if(!r.ok)throw new Error();const d=await r.json();if(!d.ok)throw new Error();offlineData={sessions:d.sessions,students:d.students};await dbPut('prefetch',offlineData);await dbPut('csrf',d.csrf_token);renderQueue(await queueGet())}catch(e){}}
+async function localScan(code){const s=offlineData.sessions.find(x=>String(x.id)===String(currentSessionId));const stu=offlineData.students.find(x=>x.kode_qr===code);if(!s||!stu)return false;const now=new Date();let status=s.kategori==='sholat'?'SUDAH':'H';if(s.kategori==='kehadiran'&&s.batas_terlambat&&now.toTimeString().slice(0,8)>s.batas_terlambat)status='T';let q=await queueGet();if(q.some(x=>x.sesi_id===Number(s.id)&&x.kode_qr===code)){show('<strong>'+esc(stu.nama)+'</strong><br>Sudah tercatat di antrean offline sesi ini.','error');return true}q.push({sesi_id:Number(s.id),kode_qr:code,nama:stu.nama,nis:stu.nis,waktu:now.toISOString()});await queueSet(q);show('<strong>'+esc(stu.nama)+'</strong><br>NIS: '+esc(stu.nis)+'<br>Status sementara: '+status+'<br><small>Server tidak tersedia. Data disimpan di perangkat.</small>','success');return true}
+async function syncQueue(){if(!navigator.onLine)return;await prefetch();let q=await queueGet();if(!q.length)return;const currentCsrf=await dbGet('csrf')||csrf;let left=[];for(const item of q){try{const r=await fetch(base+'scanner/scan.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf_token:currentCsrf,sesi_id:item.sesi_id,kode_qr:item.kode_qr,offline:'1',waktu_scan:item.waktu})});const d=await r.json();if(!d.ok&&!d.duplicate)left.push(item)}catch(e){left.push(item);break}}await queueSet(left);if(left.length===0)show('Semua transaksi offline berhasil disinkronkan ke server.','success');else if(q.length!==left.length)show(`Sinkronisasi sebagian: ${q.length-left.length} berhasil, ${left.length} masih menunggu.`,'success')}
+function timeToSeconds(t){const p=String(t||'00:00:00').split(':').map(Number);return (p[0]||0)*3600+(p[1]||0)*60+(p[2]||0)}
+function autoPickSession(){
+  const now=new Date();
+  const today=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  const seconds=now.getHours()*3600+now.getMinutes()*60+now.getSeconds();
+  const candidates=(offlineData.sessions||[]).filter(s=>s.status==='aktif' && String(s.tanggal)===today);
+
+  const active=candidates
+    .filter(s=>seconds>=timeToSeconds(s.jam_mulai) && seconds<timeToSeconds(s.jam_selesai))
+    .sort((a,b)=>timeToSeconds(b.jam_mulai)-timeToSeconds(a.jam_mulai));
+
+  let s=active[0]||null;
+  let afterSchedule=false;
+
+  if(!s){
+    const past=candidates
+      .filter(s=>seconds>=timeToSeconds(s.jam_mulai))
+      .sort((a,b)=>timeToSeconds(b.jam_mulai)-timeToSeconds(a.jam_mulai));
+    s=past[0]||null;
+    afterSchedule=!!s && seconds>=timeToSeconds(s.jam_selesai);
+  }
+
+  currentSessionId=s?Number(s.id):0;
+  currentSession=s;
+
+  if(s){
+    autoSessionName.textContent=s.kategori==='sholat' ? 'Absensi Sholat '+(s.sholat_nama||'') : 'Absensi Kehadiran';
+    autoSessionMeta.textContent=(s.nama_sesi||'')+' · '+String(s.jam_mulai||'').slice(0,5)+'–'+String(s.jam_selesai||'').slice(0,5)
+      +(afterSchedule?' · Jadwal selesai, scanner tetap aktif':'');
+  }else{
+    autoSessionName.textContent='Tidak ada kegiatan absensi saat ini';
+    autoSessionMeta.textContent='Scanner akan mengikuti jadwal secara otomatis.';
+  }
+}
+async function refreshAutoSession(){
+  if(navigator.onLine){
+    try{const r=await fetch(base+'scanner/offline-data.php',{cache:'no-store'});if(r.ok){const d=await r.json();if(d.ok){offlineData={sessions:d.sessions,students:d.students};await dbPut('prefetch',offlineData);await dbPut('csrf',d.csrf_token);}}}catch(e){}
+  }
+  autoPickSession();
+}
+
+async function scan(code){if(scannerClosed)return;code=(code||'').trim();if(!code)return;if(!currentSessionId){show('Belum ada kegiatan absensi yang aktif saat ini. Scanner akan mengikuti jadwal secara otomatis.','error');input.value='';return}try{if(!navigator.onLine)throw new Error('offline');const r=await fetch(base+'scanner/scan.php',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrf_token:csrf,sesi_id:currentSessionId,kode_qr:code}),cache:'no-store'});if(!r.ok)throw new Error('server');const d=await r.json();if(d.ok)show('<strong>'+esc(d.nama)+'</strong><br>NIS: '+esc(d.nis)+'<br>Status: '+esc(d.status)+'<br>Waktu: '+esc(d.waktu),'success');else if(d.duplicate)show('<strong>'+esc(d.nama||'Siswa')+'</strong><br>Sudah tercatat pada sesi ini.','error');else show(esc(d.message));}catch(e){setConn(false,'Koneksi terputus — transaksi disimpan otomatis di perangkat');await localScan(code)}input.value='';input.focus();renderQueue(await queueGet())}
+input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();scan(input.value)}});
+
+const QR_DECODER_LOCAL='./qr-decoder.php';
+const QR_DECODER_CDN='';
+async function loadQrFallback(){
+  const el=document.getElementById('qrDecoderStatus');
+  if(window.BarcodeDetector){window.__qrDecoderReady=true;if(el)el.textContent='Pembaca QR: BarcodeDetector lokal siap — dapat dipakai offline.';return true}
+  if(el)el.textContent='Browser tidak mendukung pembacaan QR offline.';
+  return false;
+}
+async function detectCameras(){
+  cameraSelect.disabled=true;cameraSelect.innerHTML='<option value="">Mendeteksi kamera…</option>';cameraCount.textContent='Mendeteksi…';
+  if(!window.isSecureContext){cameraCount.textContent='Butuh HTTPS/localhost';cameraSelect.innerHTML='<option value="">HTTPS atau localhost diperlukan</option>';show('Untuk akses kamera, buka aplikasi melalui <strong>HTTPS</strong> atau <strong>localhost</strong>.','error');return}
+  if(!navigator.mediaDevices?.getUserMedia || !navigator.mediaDevices?.enumerateDevices){cameraCount.textContent='Tidak didukung';cameraSelect.innerHTML='<option value="">Browser tidak mendukung kamera</option>';show('Browser tidak menyediakan API kamera. Gunakan Chrome/Edge/Firefox terbaru atau scanner USB.','error');return}
+  try{
+    // Meminta izin terlebih dahulu agar label dan deviceId kamera dapat terlihat di browser.
+    const permissionStream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    permissionStream.getTracks().forEach(t=>t.stop());
+    const devices=await navigator.mediaDevices.enumerateDevices();
+    const cams=devices.filter(d=>d.kind==='videoinput');
+    cameraSelect.innerHTML='';
+    if(!cams.length){cameraCount.textContent='0 kamera';cameraSelect.innerHTML='<option value="">Tidak ada kamera terdeteksi</option>';show('Tidak ada kamera yang terdeteksi pada perangkat ini. Jika Anda memakai scanner USB QR, gunakan kolom <strong>Input QR / Scanner USB</strong>.','error');return;}
+    cams.forEach((d,i)=>{const o=document.createElement('option');o.value=d.deviceId;o.textContent=d.label||`Kamera ${i+1}`;cameraSelect.appendChild(o)});
+    cameraSelect.disabled=false;cameraCount.textContent=`${cams.length} kamera terdeteksi`;
+    cameraHelp.textContent='Kamera yang muncul adalah kamera pada perangkat yang sedang membuka halaman. Untuk HP, buka halaman ini langsung dari HP.';
+    show(`<strong>${cams.length} kamera terdeteksi.</strong><br>Pilih kamera yang diinginkan lalu tekan Aktifkan Kamera.`,'success');
+  }catch(e){cameraCount.textContent='Izin kamera ditolak/gagal';cameraSelect.innerHTML='<option value="">Tidak dapat membaca kamera</option>';show('Browser belum memberikan izin kamera. Izinkan kamera untuk situs ini, lalu tekan <strong>Deteksi Kamera</strong> lagi.','error')}
+}
+
+document.getElementById('detectCameras').onclick=detectCameras;
+document.getElementById('startCamera').onclick=async()=>{
+  scannerClosed=false;input.disabled=false;
+  if(!currentSessionId){show('Belum ada kegiatan absensi yang aktif saat ini. Scanner akan mengikuti jadwal secara otomatis.','error');return}
+  if(!window.isSecureContext){show('Kamera browser memerlukan HTTPS atau localhost. Gunakan HTTPS di server sekolah atau localhost.','error');return}
+  if(!navigator.mediaDevices?.getUserMedia){show('Browser tidak menyediakan akses kamera. Gunakan Chrome/Edge/Firefox terbaru atau scanner USB.','error');return}
+  if(!cameraSelect.value){await detectCameras();if(!cameraSelect.value)return}
+  if(!window.__qrDecoderReady){show('Menyiapkan pembaca QR lokal…','neutral');try{await loadQrFallback()}catch(e){show('Pembaca QR belum tersedia di perangkat. Gunakan Chrome/Edge terbaru atau scanner USB jika browser tidak mendukung BarcodeDetector.','error');return}}
+  try{
+    if(stream)stream.getTracks().forEach(t=>t.stop()); if(loop)cancelAnimationFrame(loop);
+    stream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:cameraSelect.value},width:{ideal:1280},height:{ideal:720}},audio:false});
+    reader.innerHTML='';const v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=true;v.srcObject=stream;reader.appendChild(v);
+    const canvas=document.createElement('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+    const tick=async()=>{if(!stream)return;try{if(v.readyState>=2&&v.videoWidth){const max=720,scale=Math.min(1,max/v.videoWidth);canvas.width=Math.max(240,Math.round(v.videoWidth*scale));canvas.height=Math.max(240,Math.round(v.videoHeight*scale));ctx.drawImage(v,0,0,canvas.width,canvas.height);let code=null;if(window.BarcodeDetector){try{detector=detector||new BarcodeDetector({formats:['qr_code']});const native=await detector.detect(canvas);if(native.length)code=native[0].rawValue}catch(e){}}if(!code&&window.jsQR){const image=ctx.getImageData(0,0,canvas.width,canvas.height);const decoded=window.jsQR(image.data,image.width,image.height,{inversionAttempts:'attemptBoth'});if(decoded)code=decoded.data}if(code&&(code!==lastCode||Date.now()-lastAt>2500)){lastCode=code;lastAt=Date.now();await scan(code)}}}catch(e){}loop=requestAnimationFrame(tick)};tick();show('Kamera aktif. Arahkan QR ke kotak pemindaian.','success');
+  }catch(e){show('Kamera tidak dapat digunakan. Pastikan kamera tidak sedang dipakai aplikasi lain dan izin kamera sudah diberikan.','error')}
+};
+document.getElementById('stopCamera').onclick=()=>{
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  stream=null;
+  if(loop)cancelAnimationFrame(loop);
+  reader.innerHTML='<div class="scanner-placeholder"><div class="placeholder-icon">⌁</div><strong>Kamera dihentikan</strong><span>Scanner USB tetap dapat digunakan.</span></div>';
+  if(!scannerClosed)input.focus();
+};
+document.getElementById('closeScanner').onclick=()=>{
+  scannerClosed=true;
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  stream=null;
+  if(loop)cancelAnimationFrame(loop);
+  input.disabled=true;
+  reader.innerHTML='<div class="scanner-placeholder"><div class="placeholder-icon">■</div><strong>Scanner ditutup manual</strong><span>Muat ulang halaman jika ingin membuka scanner kembali.</span></div>';
+  show('<strong>Scanner ditutup.</strong><br>Sesi absensi tetap tersimpan dan tidak difinalisasi.','neutral');
+};
+window.addEventListener('online',async()=>{setConn(true,'Terhubung ke server sekolah');await syncQueue()});window.addEventListener('offline',()=>setConn(false,'Koneksi terputus — transaksi disimpan otomatis di perangkat'));
+(async()=>{if('serviceWorker'in navigator){try{await navigator.serviceWorker.register(base+'scanner/sw.js',{scope:base+'scanner/'})}catch(e){}}await prefetch();setConn(navigator.onLine,navigator.onLine?'Terhubung ke server sekolah':'Koneksi terputus — transaksi disimpan otomatis di perangkat');renderQueue(await queueGet());if(navigator.onLine)syncQueue();autoPickSession();setInterval(refreshAutoSession,15000);if(!('BarcodeDetector'in window)){loadQrFallback().catch(()=>{document.getElementById('qrDecoderStatus').textContent=navigator.onLine?'Pembaca QR: browser belum mendukung BarcodeDetector.':'Pembaca QR: browser belum mendukung BarcodeDetector.'})}detectCameras()})();
+</script><?php require_once __DIR__.'/../layouts/footer.php';?>

@@ -1,0 +1,29 @@
+{
+  "stage": "MED-01 Upload Hardening",
+  "baseline": "absensi_20260926_FULL_BATCH_AUDIT_FIX1.zip",
+  "upload_php_files": [
+    "includes/maintenance.php",
+    "guru/import.php",
+    "siswa/import.php",
+    "siswa/baru.php",
+    "ekstrakurikuler/foto.php",
+    "pengaturan/pemeliharaan/index.php",
+    "pengaturan/pemeliharaan/backup.php",
+    "profil_sekolah/index.php"
+  ],
+  "shared_upload_helpers": [
+    "includes/maintenance.php",
+    "includes/school_profile.php"
+  ],
+  "decision": "No automatic code modification made to unrelated upload handlers. Hardening must be applied consistently after confirming the actual upload paths and business limits.",
+  "recommended_controls": [
+    "check upload error",
+    "limit file size server-side",
+    "validate MIME using finfo/exif_imagetype rather than extension alone",
+    "for image uploads, verify image decodability",
+    "generate server-side random filenames",
+    "store uploads outside executable PHP path where practical",
+    "deny PHP/script execution in upload directories",
+    "preserve CSRF and authorization checks"
+  ]
+}
